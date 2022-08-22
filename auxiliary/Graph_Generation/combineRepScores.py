@@ -61,8 +61,6 @@ for i in range(3):
     cLineSet = lineSets[i]
     for f in range(len(folderNames)):
         for n in range(len(cLineSet[f])):
-            if(n == 5):
-                continue
             a, b = np.polyfit(xVals[1:], cLineSet[f][n][1:], 1)
 
             scat1 = ax.scatter(

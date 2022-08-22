@@ -1,10 +1,10 @@
 #!/bin/bash
 maliciousPercentage=35
 while [ "$maliciousPercentage" -le 35 ]; do
-    nodes=20
-    while [ "$nodes" -le 20 ]; do
+    nodes=60
+    while [ "$nodes" -le 100 ]; do
         folds=1
-        while [ "$folds" -le 5 ]; do
+        while [ "$folds" -le 10 ]; do
             now=$(date)
             echo $now $folds $maliciousPercentage $nodes
             npx hardhat clean
@@ -13,5 +13,5 @@ while [ "$maliciousPercentage" -le 35 ]; do
         done
         nodes=$(($nodes+20))
     done
-    maliciousPercentage=$(($maliciousPercentage-10))
+    maliciousPercentage=$(($maliciousPercentage+10))
 done

@@ -1,8 +1,9 @@
-# SYMBIOTIC HardHat Project
+# Untitled Project
 
 First, download Hardhat here: https://hardhat.org/getting-started
 
-To run simulations, run:
+Run the following tasks:
 ```shell
-bash runsims.sh
+npx hardhat compile
+npx hardhat run scripts/simulateNetwork.js
 ```

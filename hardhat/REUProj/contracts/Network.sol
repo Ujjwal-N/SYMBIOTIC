@@ -71,7 +71,7 @@ contract Network {
         return (totalValidatorResponses * 100) / totalParticipants;
     }
     function isMalicious(address _node) public view returns (bool){
-        return false; //to be updated based on experiments
+        return getReputationScore(_node) < 0;
     }
 
     //creates a new owner smart contract for a wallet address if one does not already exist 
@@ -93,8 +93,7 @@ contract Network {
     function createRequest(Device _device) external {
         createOwnerSC(); //its possible a storage smart contract does not yet exist for the owner
         require(_device.getOwnerAddress() != msg.sender, "Owner cannot put in request for their own device"); 
-        //require(getOwnerSC(msg.sender).getReputationScore() >= _device.getMinReputationScore(), "Requestor's reputation score is too low to access device data"); 
-        //will be activated when reputation scores are fixed
+        require(getOwnerSC(msg.sender).getReputationScore() >= _device.getMinReputationScore(), "Requestor's reputation score is too low to access device data"); 
         
         Request newRequest = new Request(this,_device); //deploys a new request contract
         getOwnerSC(msg.sender).incrementTotalOutgoingRequests(); //updates the reputation score calculation

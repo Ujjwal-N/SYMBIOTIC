@@ -159,7 +159,7 @@ contract Request{
     function volunteerAsValidator() external {
         require(!complete(), "Request has been completed");
         require(checkValidatorEligibility(msg.sender), "Validator is not eligible");
-        //require(!network.isMalicious(msg.sender), "The validator is assumed to be malicious"); //will be activated when reputation score baselines are determined
+        require(!network.isMalicious(msg.sender), "The validator is assumed to be malicious"); //Network considers reputation scores of below 0 to be malicious
 
         ratings[numValidatorsSignedUp] = ValidatorInfo(msg.sender, empty,0);
         numValidatorsSignedUp += 1;

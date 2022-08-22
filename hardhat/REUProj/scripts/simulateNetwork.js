@@ -109,8 +109,8 @@ async function generateRandomSigners(amount) {
     return retVar
 }
 
-//Provider methods
-async function handleNewValidator(tx, addressToNode) {
+
+async function handleNewValidator(tx, addressToNode) { //request sign up and device posting key for new validator
     let requestContract = await hre.ethers.getContractAt("Request", tx.to);
     let newValidatorEvent = tx.events.find(newRequestEvent => newRequestEvent.event == "NewValidator");
     let requestContractAsValidator = await requestContract.connect(addressToNode[newValidatorEvent.args["deviceAddress"]]);
@@ -118,14 +118,13 @@ async function handleNewValidator(tx, addressToNode) {
     var key = "1";
     if (ownerNode.rating == 0) {
         key = "-1";
-        console.log("providing maliciously");
     }
     let newKeyTx = await requestContractAsValidator.postValidatorDataKey(tx.from, ethers.utils.formatBytes32String(key));
     return await newKeyTx.wait();
 }
 
 
-async function handleValidatorRating(tx, addressToNode) {
+async function handleValidatorRating(tx, addressToNode) {//post key for requestor if all validators have responded to request
     let requestContract = await hre.ethers.getContractAt("Request", tx.to);
     let newValidatorEvent = tx.events.find(newRequestEvent => newRequestEvent.event == "RequestValidated");
     if (newValidatorEvent.args["complete"] == true) {
@@ -141,8 +140,7 @@ async function handleValidatorRating(tx, addressToNode) {
 async function main() {
     await hre.run('compile');
 
-    //Main Network Setup
-    //maliciousPercentage, networkParticipants
+    //Experiment Setup
     const args = process.argv.slice(2);
     let simNum = parseInt(args[0]);
     let maliciousPercentage = parseInt(args[1]);
@@ -150,10 +148,10 @@ async function main() {
     const MainNetworkFactory = await hre.ethers.getContractFactory("Network");
     const MainNetwork = await MainNetworkFactory.deploy("TestNet");
     Node.network = MainNetwork;
-
     let maxRequestsInBuffer = networkParticipants * networkParticipants;
     let totalActions = networkParticipants * 30;
 
+    //Number of requests validated and outgoing requests made by parisitic, average, altruistic nodes
     let numValidateRequests = [5, 5, 5];
     let numRequestsMade = [3, 2, 1];
 
@@ -167,6 +165,7 @@ async function main() {
     let actionOfNodes = [];
     let addressToNode = [];
 
+    //Each node initially joins the network
     for (var signerNum = 0; signerNum < signers.length; signerNum++) {
         if (signerNum >= networkParticipants) {
             addressToNode[signers[signerNum].address] = signers[signerNum];
@@ -193,33 +192,36 @@ async function main() {
         let currentNode = addressToNode[addressesArray[randIndex]]; //picks a random node
         actionOfNodes[randIndex] += 1;
 
-        var maxIter = numValidateRequests[currentNode.behavior];
+        var maxIter = numValidateRequests[currentNode.behavior]; //gets the number of requests to validate based on the current node's behavior
         if (openRequests.length < maxIter) {
             maxIter = openRequests.length;
         }
-
+        //Start of Vaidation Process
         for (var requestNum = maxIter - 1; requestNum >= 0; requestNum--) {
             let currentRequest = openRequests[requestNum];
             let requestAsNode = await currentRequest.connect(currentNode.signer);
+
             if (!(await currentRequest.checkValidatorEligibility(currentNode.signer.address))) {
                 continue;
             }
+
             let isMalicious = await currentNode.isMalicious();
             if (!isMalicious) {
 
                 let volunteerTx = await requestAsNode.volunteerAsValidator();
-                let volunteerTxRC = await volunteerTx.wait();
-                let keyTx = await handleNewValidator(volunteerTxRC, addressToNode);
+                let volunteerTxRC = await volunteerTx.wait(); //volunteers for request
+                let keyTx = await handleNewValidator(volunteerTxRC, addressToNode); //waits until device posts access key
                 let newValidatorEvent = keyTx.events.find(newRequestEvent => newRequestEvent.event == "NewValidatorKeyPosted");
-                let key = await ethers.utils.parseBytes32String(newValidatorEvent.args["accessKey"]);
+                let key = await ethers.utils.parseBytes32String(newValidatorEvent.args["accessKey"]); //reads access key
 
                 var rating = true;
-                if (key == "-1" && currentNode.behavior != 0) {
+                if (key == "-1" && currentNode.behavior != 0) { //behavior == 0 indicates a malicious node, -1 as a key indicates malicious data, 1 as a key indicates correct data
                     rating = false;
                 }
                 if (key == "1" && currentNode.behavior == 0) {
                     rating = false;
                 }
+
                 let ratingTx = await requestAsNode.postRating(rating);
                 let ratingTxRC = await ratingTx.wait();
                 let status = await handleValidatorRating(ratingTxRC, addressToNode);
@@ -229,10 +231,10 @@ async function main() {
             }
         }
 
-        if (openRequests.length < maxRequestsInBuffer) {
+        if (openRequests.length < maxRequestsInBuffer) { //similar process for making outgoing requests
             for (var outgoingRequestNum = 0; outgoingRequestNum < numRequestsMade[currentNode.behavior]; outgoingRequestNum++) {
                 let randProviderIndex = Math.floor(Math.random() * networkParticipants);
-                let randProvider = addressToNode[addressesArray[randProviderIndex]]; //picks a random node
+                let randProvider = addressToNode[addressesArray[randProviderIndex]]; //picks a random provider node
                 let isMalicious = await currentNode.isMalicious();
                 if (randProvider == currentNode) {
                     continue;
@@ -244,6 +246,7 @@ async function main() {
                 openRequests.push(newRequest);
             }
         }
+        //logging
         fs.writeFileSync('./experiments/' + maliciousPercentage + "/" + networkParticipants + '-' + simNum + '-timestamps.csv', ((new Date().getTime() - startTime) + "\n")
             , { flag: 'a+' }, err => {
                 console.log(err);

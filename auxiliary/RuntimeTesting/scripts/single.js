@@ -14,16 +14,16 @@ const hre = require("hardhat")
 const fs = require('fs');
 const { ethers } = require("ethers");
 async function main() {
-  for (var maxN = 10; maxN <= 100; maxN += 10) {
-    let fileNameStem = "await-fl-samePerson-withFunc";
-    let startTime = new Date().getTime();
-    const TestMappingFactory = await hre.ethers.getContractFactory("SimpleContract");
-    const TestMapping = await TestMappingFactory.deploy();
+  let fileNameStem = "single";
 
+  const TestMappingFactory = await hre.ethers.getContractFactory("SimpleContract");
+  const TestMapping = await TestMappingFactory.deploy();
+  let startTime = new Date().getTime();
+  for (var maxN = 10; maxN <= 100; maxN += 10) {
     var done = false;
     var i = 0;
     while (!done) {
-      let currentSigner = await generateRandomSigner();
+
       await TestMapping.increment();
       i += 1;
       if (i == maxN) {
@@ -42,6 +42,15 @@ async function main() {
   }
 }
 
+
+
+// We recommend this pattern to be able to use async/await everywhere
+// and properly handle errors.
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+
 async function generateRandomSigner() {
 
   var wallet = await ethers.Wallet.createRandom();
@@ -50,10 +59,3 @@ async function generateRandomSigner() {
   await whale.sendTransaction({ to: wallet.address, value: ethers.utils.parseEther("5") });
   return wallet
 }
-
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});

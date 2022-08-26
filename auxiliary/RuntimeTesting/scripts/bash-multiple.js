@@ -14,37 +14,39 @@ const hre = require("hardhat")
 const fs = require('fs');
 const { ethers } = require("ethers");
 async function main() {
-  let fileNameStem = "await-fl-singleNode";
-  let startTime = new Date().getTime();
+
+  let fileNameStem = "bash-multiple";
+
   const TestMappingFactory = await hre.ethers.getContractFactory("SimpleContract");
   const TestMapping = await TestMappingFactory.deploy();
 
-  for (var maxN = 10; maxN <= 100; maxN += 10) {
-    let signers = new Array(maxN);
-    for (var s = 0; s < maxN; s++) {
-      //signers[s] = await TestMapping.connect(await generateRandomSigner());
+  let startTime = new Date().getTime();
+  const args = process.argv.slice(2);
+  let maxN = parseInt(args[0]);
+
+  var done = false;
+  var i = 0;
+  while (!done) {
+
+    let currentSigner = await generateRandomSigner();
+    let contractAsNode = await TestMapping.connect(currentSigner);
+    await contractAsNode.increment();
+    i += 1;
+    if (i == maxN) {
+      done = true;
     }
-
-    var done = false;
-    var i = 0;
-    while (!done) {
-
-      await TestMapping.increment();
-      i += 1;
-      if (i == maxN) {
-        done = true;
-      }
-    }
-
-    let totalTime = new Date().getTime() - startTime;
-    const used = process.memoryUsage().heapUsed / 1024 / 1024; //https://www.valentinog.com/blog/node-usage/
-    fs.writeFileSync(fileNameStem + "-rt.csv", maxN + "," + totalTime + "\n", { flag: 'a+' }, err => {
-      console.log(err)
-    });
-    fs.writeFileSync(fileNameStem + "-mem.csv", maxN + "," + Math.round(used * 100) / 100 + "\n", { flag: 'a+' }, err => {
-      console.log(err)
-    });
   }
+
+  let totalTime = new Date().getTime() - startTime;
+  const used = process.memoryUsage().heapUsed / 1024 / 1024; //https://www.valentinog.com/blog/node-usage/
+  fs.writeFileSync(fileNameStem + "-rt.csv", maxN + "," + totalTime + "\n", { flag: 'a+' }, err => {
+    console.log(err)
+  });
+  fs.writeFileSync(fileNameStem + "-mem.csv", maxN + "," + Math.round(used * 100) / 100 + "\n", { flag: 'a+' }, err => {
+    console.log(err)
+  });
+
+
 }
 
 

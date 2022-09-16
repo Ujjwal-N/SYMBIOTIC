@@ -11,115 +11,29 @@
 // const { expect } = require("chai")
 const hre = require("hardhat")
 const fs = require('fs');
-// const { ethers } = require("ethers");
-class Node {
-    static network;
 
-    static async networkStatDump() {
-        let networkStats = [];
-        networkStats.push(await Node.network.getTotalParticipants());
-        networkStats.push(await Node.network.getTotalDeviceResponses());
-        networkStats.push(await Node.network.getTotalValidatorResponses());
-        networkStats.push(await Node.network.getAverageProviderScore());
-        networkStats.push(await Node.network.getAverageValidatorScore());
-        return networkStats;
-    }
-
-    static async getAverageValidatorScore() {
-        return await Node.network.getAverageValidatorScore();
-    }
-
-    constructor(signer, behavior) {
-        this.signer = signer;
-        this.behavior = behavior;
-
-        this.deviceWallet = null;
-        this.deviceSC = null;
-    }
-
-    async createSC(_networkAsNode) {
-        await _networkAsNode.createOwnerSC();
-    }
-
-    async registerDevice(_deviceWallet, _networkAsNode) {
-        if (this.deviceWallet != null) {
-            return;
-        }
-        this.deviceWallet = _deviceWallet;
-
-        const tx = await _networkAsNode.createDevice(this.deviceWallet.getAddress(), "");
-        const rc = await tx.wait();
-        const event = rc.events.find(event => event.event == "NewDevice");
-        this.deviceSC = await hre.ethers.getContractAt("Device", event.args["deviceSC"]);
-    }
-    async createRequest(_otherNode, _networkAsNode) {
-
-        const tx = await _networkAsNode.createRequest(_otherNode.deviceSC.address);
-        const rc = await tx.wait();
-        const event = rc.events.find(event => event.event == "NewRequest");
-        return await hre.ethers.getContractAt("Request", event.args["requestSC"]);
-    }
-
-    async isMalicious(_networkAsNode) {
-        return await _networkAsNode.isMalicious(this.signer.address);
-    }
-
-
-    async getReputationScore() {
-        let nodeSC = await hre.ethers.getContractAt("Owner", await Node.network.getOwnerSC(this.signer.address));
-        return await nodeSC.getReputationScore();
-    }
-
-    async statDump() {
-        let nodeSC = await hre.ethers.getContractAt("Owner", await Node.network.getOwnerSC(this.signer.address));
-        let nodeSCAsNode = await nodeSC.connect(this.signer);
-        console.log(await this.signer.getAddress());
-        console.log("Number of requests fulfilled: " + await nodeSCAsNode.getTotalRequestsFulfilled());
-        console.log("Number of outgoing requests: " + await nodeSCAsNode.getTotalOutgoingRequests());
-        console.log("Number of responses validated: " + await nodeSCAsNode.getTotalRequestsValidated());
-        console.log("Behavior: " + this.behavior);
-        console.log("Reputation Score: " + await nodeSCAsNode.getReputationScore());
-        console.log();
-    }
-
-    toString() {
-        return this.signer.address;
-    }
-
-}
-
-
-
-async function generateRandomSigners(amount) {
-    let retVar = []
-    for (let i = 0; i < amount; i++) {
-        retVar.push(await hre.ethers.getSigner(i));
-    }
-    return retVar
-}
-
-
-async function handleNewValidator(tx, addressToNode) { //request sign up and device posting key for new validator
+async function handleNewValidator(tx, addressToIndex, addressToBehavior) { //request sign up and device posting key for new validator
     let requestContract = await hre.ethers.getContractAt("Request", tx.to);
     let newValidatorEvent = tx.events.find(newRequestEvent => newRequestEvent.event == "NewValidator");
-    let requestContractAsValidator = await requestContract.connect(addressToNode[newValidatorEvent.args["deviceAddress"]]);
-    let ownerNode = addressToNode[newValidatorEvent.args["ownerAddress"]];
+    let deviceSigner = await hre.ethers.getSigner(addressToIndex[newValidatorEvent.args["deviceAddress"]])
+    let requestContractAsDeviceSigner = await requestContract.connect(deviceSigner);
+    let ownerNodeBehavior = addressToBehavior[newValidatorEvent.args["ownerAddress"]];
     var key = "1";
-    if (ownerNode.rating == 0) {
+    if (ownerNodeBehavior == 0) {
         key = "-1";
     }
-    let newKeyTx = await requestContractAsValidator.postValidatorDataKey(tx.from, hre.ethers.utils.formatBytes32String(key));
+    let newKeyTx = await requestContractAsDeviceSigner.postValidatorDataKey(tx.from, hre.ethers.utils.formatBytes32String(key));
     return await newKeyTx.wait();
 }
 
 
-async function handleValidatorRating(tx, addressToNode) {//post key for requestor if all validators have responded to request
+async function handleValidatorRating(tx, addressToIndex) {//post key for requestor if all validators have responded to request
     let requestContract = await hre.ethers.getContractAt("Request", tx.to);
     let newValidatorEvent = tx.events.find(newRequestEvent => newRequestEvent.event == "RequestValidated");
     if (newValidatorEvent.args["complete"] == true) {
         if (newValidatorEvent.args["validity"] == true) {
-            let requestContractAsValidator = await requestContract.connect(addressToNode[newValidatorEvent.args["deviceAddress"]]);
-            await requestContractAsValidator.postRequestorDataKey(hre.ethers.utils.formatBytes32String("10" + tx.from.substring(3, 5)));
+            let requestContractAsValidator = await requestContract.connect(await hre.ethers.getSigner(addressToIndex[newValidatorEvent.args["deviceAddress"]]));
+            requestContractAsValidator.postRequestorDataKey(hre.ethers.utils.formatBytes32String("10" + tx.from.substring(3, 5)));
             return 1;
         }
         return -1;
@@ -136,7 +50,6 @@ async function main() {
     let networkParticipants = parseInt(args[2]);
     const MainNetworkFactory = await hre.ethers.getContractFactory("Network");
     const MainNetwork = await MainNetworkFactory.deploy("TestNet");
-    Node.network = MainNetwork;
     let maxRequestsInBuffer = networkParticipants * networkParticipants;
     let totalActions = networkParticipants * 30;
 
@@ -148,75 +61,78 @@ async function main() {
     let weights = [maliciousPercentage / 100, averageNodePercentage / 100, 0.15];
     let nums = [0, 1, 2];
 
-    let signers = await generateRandomSigners(2 * networkParticipants);
-    console.log(signers.length);
     let behaviorOfNodes = [0, 0, 0];
     let reputationOfNodes = [0, 0, 0];
     let actionOfNodes = [];
-    let addressToNode = [];
+    let addressToIndex = {};
+    let addressToBehavior = {};
+    let addressToDeviceSC = {};
 
     //Each node initially joins the network
-    for (var signerNum = 0; signerNum < signers.length; signerNum++) {
-        if (signerNum >= networkParticipants) {
-            addressToNode[signers[signerNum].address] = signers[signerNum];
-        } else {
-            let behavior = getRandom(weights, nums);
-            let newNode = new Node(signers[signerNum], behavior);
-            let connected = MainNetwork.connect(signers[signerNum]);
-            await newNode.createSC(connected);
-            await newNode.registerDevice(signers[signerNum + networkParticipants], connected);
-            addressToNode[signers[signerNum].address] = newNode;
-            behaviorOfNodes[behavior] += 1;
-            actionOfNodes.push(0);
-        }
+    for (var signerNum = 0; signerNum < networkParticipants; signerNum++) {
+        let currentSigner = await hre.ethers.getSigner(signerNum);
+        let behavior = getRandom(weights, nums);
+
+        let connected = await MainNetwork.connect(currentSigner);
+        await connected.createOwnerSC();
+
+        const tx = await connected.createDevice((await hre.ethers.getSigner(signerNum + networkParticipants)).address, "");
+        const rc = await tx.wait();
+        const event = rc.events.find(event => event.event == "NewDevice");
+        addressToIndex[currentSigner.address] = signerNum;
+        addressToIndex[(await hre.ethers.getSigner(signerNum + networkParticipants)).address] = signerNum + networkParticipants;
+        addressToBehavior[currentSigner.address] = behavior;
+        addressToDeviceSC[currentSigner.address] = event.args["deviceSC"];
+        behaviorOfNodes[behavior] += 1;
+        actionOfNodes.push(0);
+
     }
     var actions = 0;
 
     var openRequests = [];
 
-    let addressesArray = Object.keys(addressToNode);
-
     while (actions <= totalActions) {
         let startTime = new Date().getTime();
         let randIndex = Math.floor(Math.random() * networkParticipants)
 
-        let currentNode = addressToNode[addressesArray[randIndex]]; //picks a random node
+        let currentNode = await hre.ethers.getSigner(randIndex); //picks a random node
         actionOfNodes[randIndex] += 1;
 
-        var maxIter = numValidateRequests[currentNode.behavior]; //gets the number of requests to validate based on the current node's behavior
+        var maxIter = numValidateRequests[addressToBehavior[currentNode.address]]; //gets the number of requests to validate based on the current node's behavior
         if (openRequests.length < maxIter) {
             maxIter = openRequests.length;
         }
-        let connected = MainNetwork.connect(currentNode.signer);
+        let connected = await MainNetwork.connect(currentNode);
+
         //Start of Vaidation Process
         for (var requestNum = maxIter - 1; requestNum >= 0; requestNum--) {
-            let currentRequest = openRequests[requestNum];
-            let requestAsNode = await currentRequest.connect(currentNode.signer);
+            let currentRequest = await hre.ethers.getContractAt("Request", openRequests[requestNum]);
+            let requestAsNode = await currentRequest.connect(currentNode);
 
-            if (!(await currentRequest.checkValidatorEligibility(currentNode.signer.address))) {
+            if (!(await currentRequest.checkValidatorEligibility(currentNode.address))) {
                 continue;
             }
 
-            let isMalicious = await currentNode.isMalicious(connected);
+            let isMalicious = await connected.isMalicious(currentNode.address);
             if (!isMalicious) {
 
                 let volunteerTx = await requestAsNode.volunteerAsValidator();
                 let volunteerTxRC = await volunteerTx.wait(); //volunteers for request
-                let keyTx = await handleNewValidator(volunteerTxRC, addressToNode); //waits until device posts access key
+                let keyTx = await handleNewValidator(volunteerTxRC, addressToIndex, addressToBehavior); //waits until device posts access key
                 let newValidatorEvent = keyTx.events.find(newRequestEvent => newRequestEvent.event == "NewValidatorKeyPosted");
                 let key = await hre.ethers.utils.parseBytes32String(newValidatorEvent.args["accessKey"]); //reads access key
 
                 var rating = true;
-                if (key == "-1" && currentNode.behavior != 0) { //behavior == 0 indicates a malicious node, -1 as a key indicates malicious data, 1 as a key indicates correct data
+                if (key == "-1" && addressToBehavior[currentNode.address] != 0) { //behavior == 0 indicates a malicious node, -1 as a key indicates malicious data, 1 as a key indicates correct data
                     rating = false;
                 }
-                if (key == "1" && currentNode.behavior == 0) {
+                if (key == "1" && addressToBehavior[currentNode.address] == 0) {
                     rating = false;
                 }
 
                 let ratingTx = await requestAsNode.postRating(rating);
                 let ratingTxRC = await ratingTx.wait();
-                let status = await handleValidatorRating(ratingTxRC, addressToNode);
+                let status = await handleValidatorRating(ratingTxRC, addressToIndex);
                 if (status != 0) {
                     openRequests.splice(requestNum, 1); //request is no longer open
                 }
@@ -224,18 +140,22 @@ async function main() {
         }
 
         if (openRequests.length < maxRequestsInBuffer) { //similar process for making outgoing requests
-            for (var outgoingRequestNum = 0; outgoingRequestNum < numRequestsMade[currentNode.behavior]; outgoingRequestNum++) {
+            for (var outgoingRequestNum = 0; outgoingRequestNum < numRequestsMade[addressToBehavior[currentNode.address]]; outgoingRequestNum++) {
                 let randProviderIndex = Math.floor(Math.random() * networkParticipants);
-                let randProvider = addressToNode[addressesArray[randProviderIndex]]; //picks a random provider node
-                let isMalicious = await currentNode.isMalicious(connected);
-                if (randProvider == currentNode) {
+                let isMalicious = await connected.isMalicious((await hre.ethers.getSigner(randIndex)).address);;
+                if (randProviderIndex == randIndex) {
                     continue;
                 }
                 if (isMalicious) {
                     break;
                 }
-                let newRequest = await currentNode.createRequest(randProvider, connected);
-                openRequests.push(newRequest);
+
+                //console.log(await connected.createRequest());
+                let deviceAddr = addressToDeviceSC[(await hre.ethers.getSigner(randProviderIndex)).address];
+                const tx = await connected.createRequest(deviceAddr);
+                const rc = await tx.wait();
+                const event = rc.events.find(event => event.event == "NewRequest");
+                openRequests.push(event.args["requestSC"]);
             }
         }
         //logging
@@ -245,8 +165,8 @@ async function main() {
             });
         if (actions % (5 * networkParticipants) == 0) {
             for (var networkParticipantNum = 0; networkParticipantNum < networkParticipants; networkParticipantNum++) {
-                let currentNode = addressToNode[addressesArray[networkParticipantNum]]; //picks a random node
-                reputationOfNodes[currentNode.behavior] += parseInt(await currentNode.getReputationScore());
+                let nodeSC = await hre.ethers.getContractAt("Owner", await MainNetwork.getOwnerSC((await hre.ethers.getSigner(networkParticipantNum)).address));
+                reputationOfNodes[addressToBehavior[(await hre.ethers.getSigner(networkParticipantNum)).address]] += parseInt(await nodeSC.getReputationScore());
             }
             let avgRepScores = [0, 0, 0]
             for (var behaviorNum = 0; behaviorNum < behaviorOfNodes.length; behaviorNum++) {
@@ -254,7 +174,7 @@ async function main() {
                 avgRepScores[behaviorNum] = avg;
             }
             let content = "" + (actions / (5 * networkParticipants)) + "," + avgRepScores.join() + ",";
-            content += (await Node.getAverageValidatorScore()) + "\n";
+
             fs.writeFileSync('./experiments/' + maliciousPercentage + "/" + networkParticipants + '-' + simNum + '-repScores.csv', content, { flag: 'a+' }, err => {
                 console.log(err)
             });

@@ -5,8 +5,7 @@ import "hardhat/console.sol";
 import "./Network.sol";
 import "./Request.sol";
 
-contract Device{
-
+contract Device {
     bool private constant debug = false;
 
     //Storage
@@ -17,52 +16,62 @@ contract Device{
 
     //Request Management
     int private minReputationScore = 0; //the minimum reputation score required to access the data
-    constructor(Network _network, address _deviceAddress, string memory _metadata) {
+
+    constructor(
+        Network _network,
+        address _deviceAddress,
+        string memory _metadata
+    ) {
         network = _network;
         ownerAddress = payable(tx.origin); //set to payable to please the solidity compiler, gas is refunded to this address if this contract is destroyed(if removeDevice is called)
         deviceAddress = _deviceAddress; //should be provided by the owner in the constructor
         metadata = _metadata;
     }
 
-    modifier onlyOwner {
-        require(tx.origin == ownerAddress, "Only the device owner can call this function");
+    modifier onlyOwner() {
+        require(
+            tx.origin == ownerAddress,
+            "Only the device owner can call this function"
+        );
         _;
     }
 
     //Getters
-    function getNetwork() public view returns (Network){
+    function getNetwork() public view returns (Network) {
         return network;
     }
 
-    function getDeviceAddress() public view returns (address){
+    function getDeviceAddress() public view returns (address) {
         return deviceAddress;
     }
 
-    function getMetadata() public view returns  (string memory){
+    function getMetadata() public view returns (string memory) {
         return metadata;
     }
 
-    function getOwnerAddress() public view returns (address){
+    function getOwnerAddress() public view returns (address) {
         return ownerAddress;
     }
 
-    function getMinReputationScore() public view returns (int){
+    function getMinReputationScore() public view returns (int) {
         return minReputationScore;
     }
 
     //Setters
-    function setMinReputationScore(int _minReputationScore) external onlyOwner{
+    function setMinReputationScore(int _minReputationScore) external onlyOwner {
         minReputationScore = _minReputationScore;
-        if(debug){
-            console.log("--------------------[Smart Contract State Change]--------------------");
+        if (debug) {
+            console.log(
+                "--------------------[Smart Contract State Change]--------------------"
+            );
             console.log("Minimum reputation score changed");
-            console.log("---------------------------------------------------------------------");
+            console.log(
+                "---------------------------------------------------------------------"
+            );
         }
     }
 
-    function destroy() public onlyOwner{
+    function destroy() public onlyOwner {
         selfdestruct(ownerAddress);
     }
-
-
 }

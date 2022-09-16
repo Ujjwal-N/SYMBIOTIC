@@ -10,4 +10,8 @@ contract SimpleContract {
     function increment() public {
         counter += 1;
     }
+
+    function getCount() public view returns (uint) {
+        return counter;
+    }
 }

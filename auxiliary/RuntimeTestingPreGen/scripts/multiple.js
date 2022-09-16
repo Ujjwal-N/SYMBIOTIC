@@ -14,36 +14,75 @@ const hre = require("hardhat")
 const fs = require('fs');
 const { ethers } = require("ethers");
 async function main() {
-  let fileNameStem = "multiple";
 
+
+  let fileNameStemMT = "multiSign-st";
+  fs.writeFileSync(fileNameStemMT + "-rt.csv", new Date().toString() + "\n", { flag: 'a+' }, err => {
+    console.log(err)
+  });
   const TestMappingFactory = await hre.ethers.getContractFactory("SimpleContract");
   const TestMapping = await TestMappingFactory.deploy();
 
-  for (var maxN = 10; maxN <= 100; maxN += 10) {
-    var done = false;
-    var i = 0;
-    let startTime = new Date().getTime();
-    while (!done) {
-      let cSigner = await TestMapping.connect(await hre.ethers.getSigner(i))
-      await cSigner.increment();
-      i += 1;
-      if (i == maxN) {
-        done = true;
-      }
-    }
 
+  for (var maxN = 10; maxN <= 50; maxN += 10) {
+    let startTime = new Date().getTime();
+    await performExperimentST(TestMapping, maxN)
+    console.log(await TestMapping.getCount())
     let totalTime = new Date().getTime() - startTime;
     const used = process.memoryUsage().heapUsed / 1024 / 1024; //https://www.valentinog.com/blog/node-usage/
-    fs.writeFileSync(fileNameStem + "-rt.csv", maxN + "," + totalTime + "\n", { flag: 'a+' }, err => {
+
+    fs.writeFileSync(fileNameStemMT + "-rt.csv", maxN + "," + totalTime + "\n", { flag: 'a+' }, err => {
       console.log(err)
     });
-    fs.writeFileSync(fileNameStem + "-mem.csv", maxN + "," + Math.round(used * 100) / 100 + "\n", { flag: 'a+' }, err => {
+    fs.writeFileSync(fileNameStemMT + "-mem.csv", maxN + "," + Math.round(used * 100) / 100 + "\n", { flag: 'a+' }, err => {
       console.log(err)
     });
   }
 }
 
+async function performExperimentMT(TestMapping, maxN) {
+  var done = false;
+  var i = 0;
+  while (!done) {
+    for (var j = 0; j < 100; j++) {
+      let cSigner = TestMapping.connect(await hre.ethers.getSigner(i));
+      let secondSigner = TestMapping.connect(await hre.ethers.getSigner((i + j) % maxN));
+      cSigner.increment().then(
+        () => secondSigner.increment().then(
+          () => cSigner.increment().then(
+            () => secondSigner.increment().then(
+              () => cSigner.increment()
+            )
+          )
+        )
+      )
+    }
+    i += 1;
+    if (i > maxN) {
+      done = true;
+    }
+  }
+}
 
+async function performExperimentST(TestMapping, maxN) {
+  var done = false;
+  var i = 0;
+  while (!done) {
+    for (var j = 0; j < 100; j++) {
+      let cSigner = TestMapping.connect(await hre.ethers.getSigner(i));
+      let secondSigner = TestMapping.connect(await hre.ethers.getSigner((i + j) % maxN));
+      await cSigner.increment()
+      await secondSigner.increment()
+      await cSigner.increment()
+      await secondSigner.increment()
+      await cSigner.increment()
+    }
+    i += 1;
+    if (i > maxN) {
+      done = true;
+    }
+  }
+}
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
